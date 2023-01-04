@@ -1,6 +1,7 @@
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import LearningRateMonitor
+from pathlib import Path
 
 
 def get_lr_monitor_callback(logging_interval='epoch'):
@@ -29,15 +30,16 @@ def get_model_ckpt_callback():
 
 
 def get_logger(logs_dir):
+    logs_dir = Path(logs_dir)
     logger = pl.loggers.TensorBoardLogger(logs_dir.parent, logs_dir.name)
     return logger
 
 
-def get_checkpoint_path(experiment_dir, version=0):
-    cps_dir = experiment_dir / f'version_{version}' / 'checkpoints'
-    checkpoint_paths = list(cps_dir.glob('epoch=*.ckpt'))
+def get_checkpoint_path(logs_dir):
+    logs_dir = Path(logs_dir)
+    checkpoint_paths = list(logs_dir.glob('epoch=*.ckpt'))
     if not checkpoint_paths:
-        raise FileNotFoundError('No checkpoints found')
+        return False
     if len(checkpoint_paths) > 1:
         raise ValueError('More than one checkpoint found')
     return checkpoint_paths[0]

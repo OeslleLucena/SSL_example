@@ -1,6 +1,6 @@
 import argparse
 import pytorch_lightning as pl
-from src.model_train import LitViT
+from src.model_finetune import LitViT
 from src.utils import get_logger, get_lr_monitor_callback, get_checkpoint_path
 
 
@@ -11,17 +11,9 @@ def train_model(args):
     # Optional logging argument that we don't need
     trainer.logger._default_hp_metric = None
 
-    # Check whether pretrained model exists. If yes, load it and skip training
-    if get_checkpoint_path(args.experiment_logs_dir):
-        pretrained_filename = get_checkpoint_path(args.experiment_logs_dir)
-        print(f"Found pretrained model at {pretrained_filename}, loading...")
-        # Automatically loads the model with the saved hyperparameters
-        model = LitViT.load_from_checkpoint(pretrained_filename)
-        trainer.fit(model)
-    else:
-        pl.seed_everything(args.seed) # To be reproducible
-        model = LitViT(args)
-        trainer.fit(model)
+    pl.seed_everything(args.seed) # To be reproducible
+    model = LitViT(args)
+    trainer.fit(model)
 
 
 if __name__ == '__main__':
@@ -30,6 +22,8 @@ if __name__ == '__main__':
 
     # add program level args
     parser.add_argument('--data_path', type=str,
+                        default='/add/a/path')
+    parser.add_argument('--pretrained_path', type=str,
                         default='/add/a/path')
     parser.add_argument('--json_path', type=str,
                         default='/add/a/path')

@@ -1,15 +1,11 @@
 import json
-import time
 import torch
-# import torch.optim as optim
-# import torch.nn as nn
 from torch.utils.data import DataLoader
 import argparse
 from pathlib import Path
 import pytorch_lightning as pl
-
 from torch.nn import L1Loss
-from monai.utils import set_determinism, first
+from monai.utils import set_determinism
 from monai.networks.nets import ViTAutoEnc
 from monai.losses import ContrastiveLoss
 from monai.data import DataLoader, Dataset
@@ -33,7 +29,7 @@ VALIDATION = 'validation'
 INFERENCE = 'inference'
 
 
-class LitUNETR(pl.LightningModule):
+class LitViT(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.save_hyperparameters(hparams)
@@ -51,24 +47,13 @@ class LitUNETR(pl.LightningModule):
         parser = argparse.ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--mlp_dim', type=int, default=3072)
         parser.add_argument('--hidden_size', type=int, default=768)
-        parser.add_argument('--img_size', type=int, default=(96, 96, 96))
-        parser.add_argument('--patch_size', type=int, default=(16, 16, 16))
+        parser.add_argument('--img_size', type=tuple, default=(96, 96, 96))
+        parser.add_argument('--patch_size', type=tuple, default=(16, 16, 16))
         parser.add_argument('--lr', type=float, default=1e-4)
         parser.add_argument('--samples_per_volume', type=int, default=50)
         parser.add_argument('--batch_size', type=int, default=4)
         parser.add_argument('--num_workers', type=int, default=4)
         parser.add_argument('--num_input_channels', type=int, default=1)
-
-
-        parser.add_argument('--data_path', type=str,
-                            default='/media/ol18/Elements/Datasets/CT-Covid-19-August2020')
-        parser.add_argument('--weights_path', type=str,
-                            default='/media/ol18/Seagate Expansion Drive/'
-                                    'Datasets/TractSeg_Data/label_weights')
-        parser.add_argument('--json_path', type=str,
-                            default='/home/ol18/Codes/SSL_example/self_supervised_pretraining/json_files/'
-                                    'tcia_covid19/dataset_split.json')
-
         return parser
 
     def forward(self, x):
@@ -146,7 +131,7 @@ class LitUNETR(pl.LightningModule):
                           batch_size=self.hparams.batch_size)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset,
+        return DataLoader(self.val_ds,
                           num_workers=self.hparams.num_workers,
                           batch_size=self.hparams.batch_size)
 
@@ -168,31 +153,18 @@ class LitUNETR(pl.LightningModule):
 
         r_loss = self.recon_loss(outputs_v1, gt_input)
         cl_loss = self.contrastive_loss(flat_out_v1, flat_out_v2)
-
-        # Adjust the CL loss by Recon Loss
         total_loss = r_loss + cl_loss * r_loss
 
-        # Calling self.log will surface up scalars for you in TensorBoard
-        self.log('train_loss', total_loss, on_step=True, on_epoch=True, prog_bar=True,
-                 logger=True)
+        self.log('train_loss', total_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return total_loss
+
+    def validation_step(self, batch, batch_idx):
+        inputs = batch['image']
+        gt_input = batch['gt_image']
+        outputs, hidden_v2 = self(inputs)
+        val_loss = self.recon_loss(outputs, gt_input)
+        self.log('val_loss', val_loss, on_epoch=True, prog_bar=True, logger=True)
+        return val_loss
 
 
-    #
-    # def validation_step(self, batch, batch_idx):
-    #     images, labels = batch
-    #     logits_predicted = self(images)
-    #
-    #     loss = F.cross_entropy(logits_predicted, labels)
-    #     acc = torch.sum(torch.eq(torch.argmax(logits_predicted, -1), labels).to(torch.float32)) / len(labels)
-    #
-    #     log = {'val_loss': loss,
-    #            'val_acc': acc}
-    #
-    #     return log
-    #
-    # def validation_epoch_end(self, outputs):
-    #     mean_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-    #     mean_acc = torch.stack([x['val_acc'] for x in outputs]).mean()
-    #
-    #     self.log('val/loss', mean_loss, prog_bar=True)
-    #     self.log('val/acc', mean_acc, prog_bar=True)
