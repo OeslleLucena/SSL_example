@@ -52,6 +52,7 @@ class LitViT(pl.LightningModule):
                     pos_embed="conv",
                     norm_name="instance",
                     res_block=True,
+                    conv_block=True,
                     dropout_rate=0.0,
                 )
 
@@ -95,7 +96,6 @@ class LitViT(pl.LightningModule):
 
     def prepare_data(self):
         set_determinism(seed=self.hparams.seed)
-
         json_path =  Path(self.hparams.json_path)
         data_path =  Path(self.hparams.data_path)
 
@@ -202,7 +202,9 @@ class LitViT(pl.LightningModule):
                         num_workers=4
                     )
 
-        self.dice_metric = DiceMetric(include_background=True, reduction="mean", get_not_nans=False)
+        self.dice_metric = DiceMetric(include_background=True,
+                                      reduction="mean",
+                                      get_not_nans=False)
         self.criterion = DiceCELoss(to_onehot_y=True, softmax=True)
         self.post_label = AsDiscrete(to_onehot=14)
         self.post_pred = AsDiscrete(argmax=True, to_onehot=14)
@@ -233,26 +235,29 @@ class LitViT(pl.LightningModule):
         labels = batch['label']
         logits = self(inputs)
         loss = self.criterion(logits, labels)
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('train_loss', loss,
+                 on_step=True,
+                 on_epoch=True,
+                 prog_bar=True,
+                 logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         inputs = batch['image']
         labels = batch['label']
-        outputs = sliding_window_inference(inputs, self.hparams.img_size, 4, self.net)
-        labels_list = decollate_batch(labels)
-        labels_convert = [
-            self.post_label(label) for label in labels_list
-        ]
+        sw_batch_size = 4
+        outputs = sliding_window_inference(inputs, self.hparams.img_size, sw_batch_size,
+                                           self.forward)
+        labels_convert = [self.post_label(label) for label in decollate_batch(labels)]
+        output_convert = [self.post_pred(pred) for pred in decollate_batch(outputs)]
 
-        outputs_list = decollate_batch(outputs)
-        output_convert = [
-            self.post_pred(pred) for pred in outputs_list
-        ]
-
+        loss = self.criterion(output_convert, labels_convert)
         dice = self.dice_metric(y_pred=output_convert, y=labels_convert).mean()
+
+        self.log('val', loss,
+                 on_step=True,
+                 prog_bar=True,
+                 logger=True)
         self.log('val_dice', dice, on_epoch=True, prog_bar=True, logger=True)
 
         return dice
-
-
